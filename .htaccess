@@ -1,0 +1,54 @@
+# Menha Boutique PHP - Apache Configuration
+# PHP takes priority over HTML for directory index
+DirectoryIndex index.php index.html
+
+Options -Indexes
+
+<IfModule mod_rewrite.c>
+    RewriteEngine On
+
+    # Pass Authorization header to HTTP_AUTHORIZATION
+    RewriteCond %{HTTP:Authorization} ^(.*)
+    RewriteRule .* - [e=HTTP_AUTHORIZATION:%1]
+
+    # Redirect .html requests to their .php equivalents (handles stale HTML links)
+    RewriteCond %{REQUEST_FILENAME} !-f
+    RewriteRule ^([^/]+)\.html$ $1.php [R=301,L]
+
+    # Also rewrite without redirect for internal resolution
+    RewriteCond %{REQUEST_FILENAME}.php -f
+    RewriteRule ^([^/]+)\.html$ $1.php [L]
+</IfModule>
+
+# Security: block direct access to config and includes
+<FilesMatch "^(db|auth)\.php$">
+    Order allow,deny
+    Deny from all
+</FilesMatch>
+
+<IfModule mod_headers.c>
+    # CORS: Allow mobile app requests to API endpoints
+    <FilesMatch "\.php$">
+        Header set Access-Control-Allow-Origin "*"
+        Header set Access-Control-Allow-Methods "GET, POST, PATCH, DELETE, OPTIONS"
+        Header set Access-Control-Allow-Headers "Content-Type, Authorization, X-Authorization"
+        Header set Access-Control-Allow-Credentials "true"
+    </FilesMatch>
+
+    # Cache static assets for 1 week
+    <FilesMatch "\.(css|js|jpg|jpeg|png|gif|webp|ico|woff2?)$">
+        Header set Cache-Control "max-age=604800, public"
+        Header set Access-Control-Allow-Origin "*"
+    </FilesMatch>
+    # Never cache PHP pages
+    <FilesMatch "\.php$">
+        Header set Cache-Control "no-store, no-cache, must-revalidate"
+    </FilesMatch>
+</IfModule>
+
+# PHP upload limits (override hosting defaults if possible)
+<IfModule mod_php.c>
+    php_value upload_max_filesize 20M
+    php_value post_max_size 25M
+    php_value max_execution_time 60
+</IfModule>
