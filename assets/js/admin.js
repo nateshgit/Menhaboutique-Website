@@ -311,6 +311,7 @@ async function loadTab(tab) {
       break;
     case "reviews":
       await loadHomeReviews();
+      await loadProductReviews();
       break;
     case "delivery":
       await loadDelivery();
@@ -3253,6 +3254,69 @@ function deleteHomeReview(id, name) {
       await Supabase.from('home_reviews').eq('id', id).delete();
       showToast('Review deleted');
       await loadHomeReviews();
+    } catch (e) {
+      showToast('Delete failed', 'error');
+    }
+  });
+}
+
+// ── PRODUCT REVIEWS ───────────────────────────────────────────
+let allProductReviews = [];
+
+async function loadProductReviews() {
+  document.getElementById("product-reviews-tbody").innerHTML =
+    '<tr><td colspan="6" class="loading-row">Loading…</td></tr>';
+  try {
+    allProductReviews = await Supabase.from("product_reviews")
+      .select("*,products(title),users(first_name,last_name)")
+      .order("created_at", { ascending: false })
+      .get();
+    renderProductReviews();
+  } catch (e) {
+    showToast("Failed to load product reviews", "error");
+  }
+}
+
+function renderProductReviews() {
+  const tbody = document.getElementById("product-reviews-tbody");
+  if (!allProductReviews.length) {
+    tbody.innerHTML = '<tr><td colspan="6" class="loading-row">No product reviews yet</td></tr>';
+    return;
+  }
+  tbody.innerHTML = allProductReviews.map(r => {
+    const productName = r.products ? r.products.title : '<span style="color:var(--text-3);font-size:0.75rem;">Unknown Product</span>';
+    const reviewerName = r.users ? `${r.users.first_name || ''} ${r.users.last_name || ''}`.trim() : 'Guest';
+    const stars = '★'.repeat(r.rating || 5) + '☆'.repeat(5 - (r.rating || 5));
+    const comment = r.comment || '';
+    const dateStr = new Date(r.created_at).toLocaleDateString();
+    
+    return `<tr>
+      <td style="font-weight:600;">${productName}</td>
+      <td>${reviewerName}</td>
+      <td style="color:#f59e0b;font-size:1.1rem;">${stars}</td>
+      <td style="max-width:300px;word-wrap:break-word;">${comment}</td>
+      <td>${dateStr}</td>
+      <td>
+        <div style="display:flex;gap:0.5rem;">
+          <button class="action-btn delete-btn" onclick="deleteProductReview('${r.id}')" title="Delete Review">
+            <i data-lucide="trash-2" style="width:14px;height:14px;"></i>
+          </button>
+        </div>
+      </td>
+    </tr>`;
+  }).join('');
+  
+  if (window.lucide) {
+    window.lucide.createIcons();
+  }
+}
+
+function deleteProductReview(id) {
+  confirmDelete(`Delete this product review?`, async () => {
+    try {
+      await Supabase.from('product_reviews').eq('id', id).delete();
+      showToast('Product review deleted');
+      await loadProductReviews();
     } catch (e) {
       showToast('Delete failed', 'error');
     }

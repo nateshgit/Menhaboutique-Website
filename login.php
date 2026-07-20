@@ -34,8 +34,20 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     } else {
         try {
             $db = getDBConnection();
-            $stmt = $db->prepare("SELECT * FROM users WHERE email = ? OR phone_number = ?");
-            $stmt->execute([$identifier, $identifier]);
+            
+            // Clean identifier to search phone numbers robustly (remove all non-digits)
+            $cleanIdentifier = preg_replace('/[^0-9]/', '', $identifier);
+            $likeClean = '%' . $cleanIdentifier;
+            
+            // Query users comparing email, exact cleaned phone, or suffix matched phone (for 10-digit login inputs)
+            $stmt = $db->prepare("
+                SELECT * FROM users 
+                WHERE email = ? 
+                   OR REPLACE(REPLACE(REPLACE(phone_number, '+', ''), ' ', ''), '-', '') = ?
+                   OR (LENGTH(?) >= 10 AND REPLACE(REPLACE(REPLACE(phone_number, '+', ''), ' ', ''), '-', '') LIKE ?)
+                LIMIT 1
+            ");
+            $stmt->execute([$identifier, $cleanIdentifier, $cleanIdentifier, $likeClean]);
             $user = $stmt->fetch();
             
             if ($user && (password_verify($password, $user['password_hash']) || $user['password_hash'] === $password)) {

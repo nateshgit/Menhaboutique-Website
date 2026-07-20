@@ -34,12 +34,29 @@ function getAuthorizationHeader() {
 }
 
 function isLoggedIn() {
+    $authHeader = getAuthorizationHeader();
+    
     if (isset($_SESSION['user'])) {
-        return true;
+        try {
+            $db = getDBConnection();
+            $stmt = $db->prepare("SELECT id FROM users WHERE id = ? LIMIT 1");
+            $stmt->execute([$_SESSION['user']['id']]);
+            if ($stmt->fetch()) {
+                // If Authorization header is provided, make sure it matches the session user
+                if ($authHeader && preg_match('/Bearer\s+(mock-jwt-token-([\w-]+))/', $authHeader, $matches)) {
+                    $userId = $matches[2];
+                    if (strcasecmp($_SESSION['user']['id'], $userId) !== 0) {
+                        unset($_SESSION['user']);
+                        return false;
+                    }
+                }
+                return true;
+            }
+        } catch (Exception $e) {}
+        unset($_SESSION['user']);
     }
     
     // Check Authorization header for mobile token
-    $authHeader = getAuthorizationHeader();
     if ($authHeader) {
         if (preg_match('/Bearer\s+(mock-jwt-token-([\w-]+))/', $authHeader, $matches)) {
             $userId = $matches[2];

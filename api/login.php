@@ -35,8 +35,20 @@ if (empty($identifier) || empty($password)) {
 
 try {
     $pdo  = getDBConnection();
-    $stmt = $pdo->prepare("SELECT * FROM users WHERE email = ? OR phone_number = ? LIMIT 1");
-    $stmt->execute([$identifier, $identifier]);
+    
+    // Clean identifier to search phone numbers robustly (remove all non-digits)
+    $cleanIdentifier = preg_replace('/[^0-9]/', '', $identifier);
+    $likeClean = '%' . $cleanIdentifier;
+    
+    // Query users comparing email, exact cleaned phone, or suffix matched phone (for 10-digit login inputs)
+    $stmt = $pdo->prepare("
+        SELECT * FROM users 
+        WHERE email = ? 
+           OR REPLACE(REPLACE(REPLACE(phone_number, '+', ''), ' ', ''), '-', '') = ?
+           OR (LENGTH(?) >= 10 AND REPLACE(REPLACE(REPLACE(phone_number, '+', ''), ' ', ''), '-', '') LIKE ?)
+        LIMIT 1
+    ");
+    $stmt->execute([$identifier, $cleanIdentifier, $cleanIdentifier, $likeClean]);
     $user = $stmt->fetch(PDO::FETCH_ASSOC);
 
     if (!$user) {

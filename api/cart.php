@@ -177,6 +177,36 @@ try {
                 echo json_encode(['success' => true]);
             }
             break;
+
+        case 'merge':
+            $items = $input['items'] ?? [];
+            if (isLoggedIn() && !empty($items)) {
+                $user   = getCurrentUser();
+                $cartId = sessionGetOrCreateCart($db, $user['id']);
+                foreach ($items as $item) {
+                    $product   = $item['product'] ?? null;
+                    $quantity  = max(1, (int)($item['quantity'] ?? 1));
+                    if (!$product || empty($product['id'])) continue;
+                    $productId = $product['id'];
+                    $variantId = $product['variant_id'] ?? null;
+                    
+                    $chk = $db->prepare("SELECT id FROM cart_items WHERE cart_id = ? AND product_id = ? AND (variant_id = ? OR (variant_id IS NULL AND ? IS NULL))");
+                    $chk->execute([$cartId, $productId, $variantId, $variantId]);
+                    $existId = $chk->fetchColumn();
+                    if ($existId) {
+                        $db->prepare("UPDATE cart_items SET quantity = quantity + ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?")->execute([$quantity, $existId]);
+                    } else {
+                        $price = (float)($product['price'] ?? $product['new_price'] ?? 0);
+                        $db->prepare("INSERT INTO cart_items (id, cart_id, product_id, variant_id, quantity, unit_price, product_snapshot) VALUES (?, ?, ?, ?, ?, ?, ?)")
+                           ->execute([generateUUID(), $cartId, $productId, $variantId, $quantity, $price, json_encode($product)]);
+                    }
+                }
+                touchCart($db, $cartId);
+                echo json_encode(['success' => true]);
+            } else {
+                echo json_encode(['success' => false, 'error' => 'Not logged in or empty items']);
+            }
+            break;
         // ─────────────────────────────────────────────────────
 
         case 'get_or_create':

@@ -1070,5 +1070,134 @@ const CartManager = {
   },
 };
 
+// ── WishlistManager ──────────────────────────────────────────
+// Wishlist state is synchronized with localStorage for guest users,
+// and synchronized with the database wishlists table for logged-in users.
+// ─────────────────────────────────────────────────────────────
+const WishlistManager = {
+  _items: [],
+
+  getWishlist() {
+    return this._items;
+  },
+
+  _notify() {
+    window.dispatchEvent(new Event("wishlistUpdated"));
+  },
+
+  async init() {
+    if (window.MB_AUTH && window.MB_AUTH.isLoggedIn) {
+      try {
+        const res = await fetch("api/supabase_shim.php?table=wishlists&select=*,product(*)");
+        if (res.ok) {
+          const data = await res.json();
+          if (Array.isArray(data)) {
+            this._items = data.map(item => item.product).filter(Boolean);
+          }
+        }
+      } catch (e) {
+        console.warn("Wishlist load failed:", e);
+      }
+    } else {
+      // Guest
+      const local = localStorage.getItem("mb_wishlist");
+      if (local) {
+        try {
+          this._items = JSON.parse(local);
+        } catch (e) {
+          this._items = [];
+        }
+      }
+    }
+    this._notify();
+  },
+
+  has(productId) {
+    return this._items.some(p => String(p.id) === String(productId));
+  },
+
+  async toggle(product) {
+    if (this.has(product.id)) {
+      await this.remove(product.id);
+    } else {
+      await this.add(product);
+    }
+  },
+
+  async add(product) {
+    if (this.has(product.id)) return;
+    this._items.push(product);
+    this._notify();
+
+    if (window.MB_AUTH && window.MB_AUTH.isLoggedIn) {
+      try {
+        await fetch("api/supabase_shim.php?table=wishlists", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ product_id: product.id })
+        });
+      } catch (e) {
+        console.warn("Wishlist add failed:", e);
+      }
+    } else {
+      localStorage.setItem("mb_wishlist", JSON.stringify(this._items));
+    }
+
+    if (typeof window.showToast === "function") {
+      window.showToast(
+        `Added "${product.title || product.name || "Item"}" to wishlist`,
+        "success"
+      );
+    }
+  },
+
+  async remove(productId) {
+    this._items = this._items.filter(p => String(p.id) !== String(productId));
+    this._notify();
+
+    if (window.MB_AUTH && window.MB_AUTH.isLoggedIn) {
+      try {
+        await fetch(`api/supabase_shim.php?table=wishlists&product_id=eq.${productId}`, {
+          method: "DELETE"
+        });
+      } catch (e) {
+        console.warn("Wishlist remove failed:", e);
+      }
+    } else {
+      localStorage.setItem("mb_wishlist", JSON.stringify(this._items));
+    }
+
+    if (typeof window.showToast === "function") {
+      window.showToast("Removed from wishlist", "info");
+    }
+  },
+
+  async mergeGuestWishlistOnLogin() {
+    const local = localStorage.getItem("mb_wishlist");
+    if (!local) return;
+    try {
+      const list = JSON.parse(local);
+      if (Array.isArray(list) && list.length > 0) {
+        for (const item of list) {
+          try {
+            await fetch("api/supabase_shim.php?table=wishlists", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ product_id: item.id })
+            });
+          } catch (e) {
+            // Ignore duplicate/fail
+          }
+        }
+      }
+      localStorage.removeItem("mb_wishlist");
+      await this.init();
+    } catch (e) {
+      console.warn("Guest wishlist merge failed:", e);
+    }
+  }
+};
+
 window.MainAPI = MainAPI;
 window.CartManager = CartManager;
+window.WishlistManager = WishlistManager;

@@ -246,7 +246,7 @@ require_once __DIR__ . '/includes/page_topbar.php';
         }
 
         await loadAddresses();
-        initLocationLogic();
+        await initLocationLogic();
     });
 
     async function loadAddresses() {
@@ -325,13 +325,22 @@ require_once __DIR__ . '/includes/page_topbar.php';
 
                 const countrySelect = document.getElementById('addr-country');
                 for (let i = 0; i < countrySelect.options.length; i++) {
-                    if (countrySelect.options[i].text === addr.country) {
+                    if (countrySelect.options[i].text.toLowerCase().trim() === addr.country.toLowerCase().trim()) {
                         countrySelect.selectedIndex = i;
                         break;
                     }
                 }
                 await loadStates(countrySelect.value, addr.state, addr.city);
             }
+        } else {
+            const countrySelect = document.getElementById('addr-country');
+            for (let i = 0; i < countrySelect.options.length; i++) {
+                if (countrySelect.options[i].text.toLowerCase().trim() === 'india') {
+                    countrySelect.selectedIndex = i;
+                    break;
+                }
+            }
+            await loadStates(countrySelect.value);
         }
 
         modal.style.display = 'flex';

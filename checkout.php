@@ -1031,6 +1031,15 @@ require_once __DIR__ . '/includes/page_topbar.php';
                 cachedCountries = await MainAPI.getCountries();
                 sessionStorage.setItem('mb_countries', JSON.stringify(cachedCountries));
             }
+            if (!newAddrData.country && cachedCountries.length > 0) {
+                const india = cachedCountries.find(c => c.name.toLowerCase().trim() === 'india');
+                if (india) {
+                    newAddrData.country = india.name;
+                    if (!cachedStates.length) {
+                        cachedStates = await MainAPI.getStates(india.id);
+                    }
+                }
+            }
         }
 
         const currentDeliveryCharge = await MainAPI.calculateDeliveryCharge(checkoutState, cartItems);

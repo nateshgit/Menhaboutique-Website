@@ -3,6 +3,7 @@
 -- ============================================================
 
 SET FOREIGN_KEY_CHECKS = 0;
+DROP TABLE IF EXISTS `wishlists`;
 DROP TABLE IF EXISTS `cart_items`;
 DROP TABLE IF EXISTS `carts`;
 DROP TABLE IF EXISTS `cities`;
@@ -305,3 +306,15 @@ CREATE TABLE `product_reviews` (
     FOREIGN KEY (`product_id`) REFERENCES `products` (`id`) ON DELETE CASCADE,
     FOREIGN KEY (`user_id`) REFERENCES `users` (`id`) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- 20. Wishlists Table
+CREATE TABLE `wishlists` (
+    `id` VARCHAR(36) PRIMARY KEY,
+    `user_id` VARCHAR(36) NOT NULL,
+    `product_id` VARCHAR(36) NOT NULL,
+    `created_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE KEY `user_product_unique` (`user_id`, `product_id`),
+    FOREIGN KEY (`user_id`) REFERENCES `users` (`id`) ON DELETE CASCADE,
+    FOREIGN KEY (`product_id`) REFERENCES `products` (`id`) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+

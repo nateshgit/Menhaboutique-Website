@@ -330,6 +330,16 @@ window.MB_AUTH = {
           <tbody id="reviews-tbody"><tr><td colspan="8" class="loading-row">Loading…</td></tr></tbody>
         </table>
       </div>
+      
+      <div class="tab-header" style="margin-top:2.5rem; border-top:1px solid var(--color-border); padding-top:2rem;">
+        <h2>Product Reviews</h2>
+      </div>
+      <div class="admin-table-wrap">
+        <table class="admin-table">
+          <thead><tr><th>Product</th><th>Reviewer</th><th>Rating</th><th>Review Comment</th><th>Date</th><th>Actions</th></tr></thead>
+          <tbody id="product-reviews-tbody"><tr><td colspan="6" class="loading-row">Loading…</td></tr></tbody>
+        </table>
+      </div>
     </section>
 
     <!-- ── DELIVERY ──────────────────────────────────── -->

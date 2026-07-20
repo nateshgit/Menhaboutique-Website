@@ -19,6 +19,26 @@ require_once __DIR__ . '/../config/db.php';
 require_once __DIR__ . '/../includes/auth.php';
 
 $pdo = getDBConnection();
+
+// Self-healing database migration for wishlists table
+try {
+    $pdo->query("SELECT 1 FROM `wishlists` LIMIT 1");
+} catch (Exception $e) {
+    try {
+        $pdo->exec("CREATE TABLE IF NOT EXISTS `wishlists` (
+            `id` VARCHAR(36) PRIMARY KEY,
+            `user_id` VARCHAR(36) NOT NULL,
+            `product_id` VARCHAR(36) NOT NULL,
+            `created_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            UNIQUE KEY `user_product_unique` (`user_id`, `product_id`),
+            FOREIGN KEY (`user_id`) REFERENCES `users` (`id`) ON DELETE CASCADE,
+            FOREIGN KEY (`product_id`) REFERENCES `products` (`id`) ON DELETE CASCADE
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;");
+    } catch (Exception $ex) {
+        // Fail silently
+    }
+}
+
 $method = $_SERVER['REQUEST_METHOD'];
 
 // Get table parameter
@@ -52,7 +72,7 @@ $isAdmin = isAdmin();
 
 // Restrict write methods for all tables except user-writable ones
 $isWriteMethod = in_array($method, ['POST', 'PATCH', 'DELETE']);
-$userAllowedWriteTables = ['contact_messages', 'carts', 'cart_items', 'addresses', 'orders', 'product_reviews'];
+$userAllowedWriteTables = ['contact_messages', 'carts', 'cart_items', 'addresses', 'orders', 'product_reviews', 'wishlists'];
 $adminOnlyReadTables = ['payment_gateways', 'delivery_config', 'order_prefix'];
 
 if ($isWriteMethod) {
@@ -75,7 +95,7 @@ if ($isWriteMethod) {
 }
 
 // User-level table authentication enforcement
-if (in_array($table, ['addresses', 'orders', 'carts', 'cart_items'])) {
+if (in_array($table, ['addresses', 'orders', 'carts', 'cart_items', 'wishlists'])) {
     if (!$currentUser) {
         http_response_code(401);
         echo json_encode(['error' => 'Unauthorized: Logged-in user required']);
@@ -153,8 +173,11 @@ foreach ($_GET as $key => $val) {
     }
 }
 
-// Enforce user-level read/edit isolation for non-admins
-if (!$isAdmin && in_array($table, ['addresses', 'orders', 'carts'])) {
+// Enforce user-level read/edit isolation (always isolate wishlists and carts; isolate addresses and orders for non-admins)
+if (in_array($table, ['wishlists', 'carts'])) {
+    $whereClauses[] = "`user_id` = :auth_user_id";
+    $params['auth_user_id'] = $currentUserId;
+} elseif (!$isAdmin && in_array($table, ['addresses', 'orders'])) {
     $whereClauses[] = "`user_id` = :auth_user_id";
     $params['auth_user_id'] = $currentUserId;
 }
@@ -237,6 +260,47 @@ if ($method === 'GET') {
                     }
                 }
             }
+            
+            // Join products on product_reviews
+            if ($table === 'product_reviews' && strpos($select, 'products') !== false) {
+                $productIds = array_values(array_unique(array_column($rows, 'product_id')));
+                if (!empty($productIds)) {
+                    $inQuery = implode(',', array_fill(0, count($productIds), '?'));
+                    $prodStmt = $pdo->prepare("SELECT id, title FROM products WHERE id IN ($inQuery)");
+                    $prodStmt->execute($productIds);
+                    $products = $prodStmt->fetchAll(PDO::FETCH_ASSOC);
+                    
+                    $productsById = [];
+                    foreach ($products as $p) {
+                        $productsById[$p['id']] = $p;
+                    }
+                    
+                    foreach ($rows as &$row) {
+                        $row['products'] = isset($productsById[$row['product_id']]) ? $productsById[$row['product_id']] : null;
+                    }
+                }
+            }
+
+            // Join products on wishlists
+            if ($table === 'wishlists' && (strpos($select, 'product') !== false || strpos($select, 'products') !== false)) {
+                $productIds = array_values(array_unique(array_column($rows, 'product_id')));
+                if (!empty($productIds)) {
+                    $inQuery = implode(',', array_fill(0, count($productIds), '?'));
+                    $prodStmt = $pdo->prepare("SELECT * FROM products WHERE id IN ($inQuery)");
+                    $prodStmt->execute($productIds);
+                    $products = $prodStmt->fetchAll(PDO::FETCH_ASSOC);
+                    
+                    $productsById = [];
+                    foreach ($products as $p) {
+                        $productsById[$p['id']] = $p;
+                    }
+                    
+                    foreach ($rows as &$row) {
+                        $row['product'] = isset($productsById[$row['product_id']]) ? $productsById[$row['product_id']] : null;
+                        $row['products'] = $row['product'];
+                    }
+                }
+            }
 
             // 3. Join countries on states
             if ($table === 'states' && strpos($select, 'countries') !== false) {
@@ -296,6 +360,36 @@ if ($method === 'GET') {
                         $attrsByProduct[$attr['product_id']][] = $attr;
                     }
 
+                    $productsById = [];
+                    foreach ($products as $p) {
+                        $p['product_attributes'] = isset($attrsByProduct[$p['id']]) ? $attrsByProduct[$p['id']] : [];
+                        $productsById[$p['id']] = $p;
+                    }
+                    
+                    foreach ($rows as &$row) {
+                        $row['product'] = isset($productsById[$row['product_id']]) ? $productsById[$row['product_id']] : null;
+                    }
+                }
+            }
+            
+            // Join products on wishlists
+            if ($table === 'wishlists' && (strpos($select, 'product') !== false)) {
+                $productIds = array_values(array_unique(array_column($rows, 'product_id')));
+                if (!empty($productIds)) {
+                    $inQuery = implode(',', array_fill(0, count($productIds), '?'));
+                    $prodStmt = $pdo->prepare("SELECT * FROM products WHERE id IN ($inQuery)");
+                    $prodStmt->execute($productIds);
+                    $products = $prodStmt->fetchAll(PDO::FETCH_ASSOC);
+                    
+                    // Fetch attributes for these products
+                    $attrStmt = $pdo->prepare("SELECT * FROM product_attributes WHERE product_id IN ($inQuery) ORDER BY display_order ASC");
+                    $attrStmt->execute($productIds);
+                    $attrs = $attrStmt->fetchAll(PDO::FETCH_ASSOC);
+                    $attrsByProduct = [];
+                    foreach ($attrs as $attr) {
+                        $attrsByProduct[$attr['product_id']][] = $attr;
+                    }
+                    
                     $productsById = [];
                     foreach ($products as $p) {
                         $p['product_attributes'] = isset($attrsByProduct[$p['id']]) ? $attrsByProduct[$p['id']] : [];
@@ -404,15 +498,20 @@ if (!empty($input) && in_array($method, ['POST', 'PATCH'])) {
     } catch (PDOException $e) { /* proceed with original input */ }
 }
 
-// Force user_id for non-admin insertions
-if (!$isAdmin && $method === 'POST' && in_array($table, ['addresses', 'orders', 'carts'])) {
+// Force or default user_id for insertions (always force own ID for wishlists and carts; force own ID for non-admins on addresses and orders)
+if ($method === 'POST' && in_array($table, ['addresses', 'orders', 'carts', 'wishlists'])) {
+    $forceOwnId = !$isAdmin || in_array($table, ['wishlists', 'carts']);
     if (isset($input[0])) {
         foreach ($input as &$row) {
-            $row['user_id'] = $currentUserId;
+            if ($forceOwnId || !isset($row['user_id'])) {
+                $row['user_id'] = $currentUserId;
+            }
         }
         unset($row);
     } else {
-        $input['user_id'] = $currentUserId;
+        if ($forceOwnId || !isset($input['user_id'])) {
+            $input['user_id'] = $currentUserId;
+        }
     }
 }
 
@@ -432,7 +531,7 @@ if ($method === 'POST') {
         $insertedRows = [];
         foreach ($rowsToInsert as $rowData) {
             // Generate UUID if 'id' is required and not present
-            if (!isset($rowData['id']) && in_array($table, ['products', 'categories', 'product_images', 'product_attributes', 'addresses', 'orders', 'order_items', 'banners', 'users', 'carts', 'cart_items', 'countries', 'states', 'cities', 'couriers', 'payment_gateways', 'delivery_config', 'delivery_tariffs', 'product_reviews', 'home_reviews'])) {
+            if (!isset($rowData['id']) && in_array($table, ['products', 'categories', 'product_images', 'product_attributes', 'addresses', 'orders', 'order_items', 'banners', 'users', 'carts', 'cart_items', 'countries', 'states', 'cities', 'couriers', 'payment_gateways', 'delivery_config', 'delivery_tariffs', 'product_reviews', 'home_reviews', 'wishlists'])) {
                 // simple UUIDv4 generator
                 $data = random_bytes(16);
                 $data[6] = chr(ord($data[6]) & 0x0f | 0x40);
@@ -444,6 +543,18 @@ if ($method === 'POST') {
             $colNames = implode(', ', array_map(function($c) { return "`$c`"; }, $cols));
             $placeholders = implode(', ', array_map(function($c) { return ":ins_$c"; }, $cols));
             
+            // Clear default address if new address is set to default
+            if ($table === 'addresses') {
+                $isDefault = isset($rowData['is_default']) && ($rowData['is_default'] == 1 || $rowData['is_default'] === true || $rowData['is_default'] === 'true' || $rowData['is_default'] === '1');
+                if ($isDefault) {
+                    $addrUserId = $rowData['user_id'] ?? $currentUserId;
+                    if ($addrUserId) {
+                        $stmtClear = $pdo->prepare("UPDATE addresses SET is_default = 0 WHERE user_id = ?");
+                        $stmtClear->execute([$addrUserId]);
+                    }
+                }
+            }
+
             $stmt = $pdo->prepare("INSERT INTO `$table` ($colNames) VALUES ($placeholders)");
             
             $execParams = [];
@@ -460,8 +571,19 @@ if ($method === 'POST') {
             $insertedRows[] = $rowData;
         }
         
+        // Recalculate average rating if inserting product reviews
+        if ($table === 'product_reviews') {
+            $productIdsToUpdate = array_column($insertedRows, 'product_id');
+            foreach (array_unique(array_filter($productIdsToUpdate)) as $pId) {
+                $stmtAvg = $pdo->prepare("UPDATE products SET rating = COALESCE((SELECT ROUND(AVG(rating), 1) FROM product_reviews WHERE product_id = ?), 0.0) WHERE id = ?");
+                $stmtAvg->execute([$pId, $pId]);
+            }
+        }
+        
         echo json_encode($isMulti ? $insertedRows : $insertedRows[0]);
     } catch (PDOException $e) {
+        $logData = date('Y-m-d H:i:s') . " - Table: $table - Error: " . $e->getMessage() . " - CurrentUserId: " . json_encode($currentUserId) . " - Input: " . json_encode($input) . " - RowData: " . (isset($rowData) ? json_encode($rowData) : 'null') . "\n";
+        file_put_contents(__DIR__ . '/db_error.log', $logData, FILE_APPEND);
         http_response_code(500);
         echo json_encode(['error' => 'INSERT execution failed: ' . $e->getMessage()]);
     }
@@ -493,6 +615,23 @@ if ($method === 'PATCH') {
             }
         }
         
+        // Clear default address if set to default
+        if ($table === 'addresses') {
+            $isDefault = isset($input['is_default']) && ($input['is_default'] == 1 || $input['is_default'] === true || $input['is_default'] === 'true' || $input['is_default'] === '1');
+            if ($isDefault) {
+                $addrUserId = $input['user_id'] ?? $currentUserId;
+                if (!$addrUserId) {
+                    $chkStmt = $pdo->prepare("SELECT user_id FROM addresses" . $whereSql);
+                    $chkStmt->execute($params);
+                    $addrUserId = $chkStmt->fetchColumn();
+                }
+                if ($addrUserId) {
+                    $stmtClear = $pdo->prepare("UPDATE addresses SET is_default = 0 WHERE user_id = ?");
+                    $stmtClear->execute([$addrUserId]);
+                }
+            }
+        }
+
         $setSql = implode(', ', $setClauses);
         $queryStr = "UPDATE `$table` SET $setSql" . $whereSql;
         
@@ -506,6 +645,15 @@ if ($method === 'PATCH') {
         $fetchStmt = $pdo->prepare("SELECT * FROM `$table`" . $whereSql);
         $fetchStmt->execute($params);
         $updatedRows = $fetchStmt->fetchAll(PDO::FETCH_ASSOC);
+        
+        // Recalculate average rating if updating product reviews
+        if ($table === 'product_reviews') {
+            $productIdsToUpdate = array_column($updatedRows, 'product_id');
+            foreach (array_unique(array_filter($productIdsToUpdate)) as $pId) {
+                $stmtAvg = $pdo->prepare("UPDATE products SET rating = COALESCE((SELECT ROUND(AVG(rating), 1) FROM product_reviews WHERE product_id = ?), 0.0) WHERE id = ?");
+                $stmtAvg->execute([$pId, $pId]);
+            }
+        }
         
         echo json_encode($updatedRows);
     } catch (PDOException $e) {
@@ -532,6 +680,15 @@ if ($method === 'DELETE') {
         $queryStr = "DELETE FROM `$table`" . $whereSql;
         $stmt = $pdo->prepare($queryStr);
         $stmt->execute($params);
+        
+        // Recalculate average rating if deleting product reviews
+        if ($table === 'product_reviews') {
+            $productIdsToUpdate = array_column($deletedRows, 'product_id');
+            foreach (array_unique(array_filter($productIdsToUpdate)) as $pId) {
+                $stmtAvg = $pdo->prepare("UPDATE products SET rating = COALESCE((SELECT ROUND(AVG(rating), 1) FROM product_reviews WHERE product_id = ?), 0.0) WHERE id = ?");
+                $stmtAvg->execute([$pId, $pId]);
+            }
+        }
         
         echo json_encode($deletedRows);
     } catch (PDOException $e) {

@@ -1555,3 +1555,72 @@ button i, button svg,
     font-weight: 600;
     color: var(--color-primary-dark);
 }
+
+/* ── Wishlist Styles ────────────────────────────────────────── */
+.pd-btn-wishlist {
+    width: 50px;
+    height: 50px;
+    border-radius: 12px;
+    border: 2px solid #e2e8f0;
+    background: #fff;
+    color: #64748b;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: all 0.2s ease;
+    flex-shrink: 0;
+    outline: none;
+}
+.pd-btn-wishlist:hover {
+    border-color: #cbd5e1;
+    color: #334155;
+    background: #f8fafc;
+}
+.pd-btn-wishlist.active {
+    border-color: #fee2e2;
+    background: #fff5f5;
+    color: #ef4444;
+}
+.pd-btn-wishlist svg {
+    transition: transform 0.2s ease;
+}
+.pd-btn-wishlist.active svg {
+    fill: #ef4444;
+    transform: scale(1.1);
+}
+
+/* Floating card wishlist button */
+.prod-img-box {
+    position: relative;
+}
+.card-wishlist-btn {
+    position: absolute;
+    top: 10px;
+    right: 10px;
+    width: 36px;
+    height: 36px;
+    border-radius: 50%;
+    background: rgba(255, 255, 255, 0.9);
+    border: 1px solid rgba(0, 0, 0, 0.05);
+    color: #64748b;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    z-index: 10;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
+}
+.card-wishlist-btn:hover {
+    background: #fff;
+    color: #ef4444;
+    transform: scale(1.05);
+}
+.card-wishlist-btn.active {
+    color: #ef4444;
+    background: #fff;
+}
+.card-wishlist-btn.active svg {
+    fill: #ef4444;
+}

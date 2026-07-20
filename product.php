@@ -26,6 +26,15 @@ function generateUUID() {
     );
 }
 
+// Check if user has already reviewed
+$userReview = null;
+if (isLoggedIn()) {
+    $currentUser = getCurrentUser();
+    $stmtCheckReview = $db->prepare("SELECT * FROM product_reviews WHERE product_id = ? AND user_id = ? LIMIT 1");
+    $stmtCheckReview->execute([$productId, $currentUser['id']]);
+    $userReview = $stmtCheckReview->fetch();
+}
+
 // 1. Handle Review Submission if POSTed
 $reviewError = '';
 $reviewSuccess = '';
@@ -43,15 +52,26 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
             $reviewError = 'Please write a comment for your review.';
         } else {
             try {
-                $reviewId = generateUUID();
-                $stmtInsert = $db->prepare("INSERT INTO product_reviews (id, product_id, user_id, rating, comment) VALUES (?, ?, ?, ?, ?)");
-                $stmtInsert->execute([$reviewId, $productId, $user['id'], $rating, $comment]);
+                if ($userReview) {
+                    $stmtUpdate = $db->prepare("UPDATE product_reviews SET rating = ?, comment = ? WHERE id = ?");
+                    $stmtUpdate->execute([$rating, $comment, $userReview['id']]);
+                    $reviewSuccess = 'Your review has been updated!';
+                } else {
+                    $reviewId = generateUUID();
+                    $stmtInsert = $db->prepare("INSERT INTO product_reviews (id, product_id, user_id, rating, comment) VALUES (?, ?, ?, ?, ?)");
+                    $stmtInsert->execute([$reviewId, $productId, $user['id'], $rating, $comment]);
+                    $reviewSuccess = 'Thank you for your review!';
+                }
                 
                 // Update product average rating
                 $stmtAvg = $db->prepare("UPDATE products SET rating = (SELECT ROUND(AVG(rating), 1) FROM product_reviews WHERE product_id = ?) WHERE id = ?");
                 $stmtAvg->execute([$productId, $productId]);
                 
-                $reviewSuccess = 'Thank you for your review!';
+                // Refresh userReview
+                if (isLoggedIn()) {
+                    $stmtCheckReview->execute([$productId, $currentUser['id']]);
+                    $userReview = $stmtCheckReview->fetch();
+                }
             } catch (PDOException $e) {
                 $reviewError = 'Failed to submit review: ' . $e->getMessage();
             }
@@ -492,6 +512,39 @@ require_once __DIR__ . '/includes/page_topbar.php';
     .pd-btn-buy:hover:not(:disabled) { background: var(--color-primary-dark); border-color: var(--color-primary-dark); }
     .pd-btn-buy:disabled { opacity: 0.4; cursor: not-allowed; }
 
+    .pd-btn-wishlist {
+        width: 50px;
+        height: 50px;
+        border-radius: 12px;
+        border: 2px solid #e2e8f0;
+        background: #fff;
+        color: #64748b;
+        cursor: pointer;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        transition: all 0.2s ease;
+        flex-shrink: 0;
+        outline: none;
+    }
+    .pd-btn-wishlist:hover {
+        border-color: #cbd5e1;
+        color: #334155;
+        background: #f8fafc;
+    }
+    .pd-btn-wishlist.active {
+        border-color: #fee2e2;
+        background: #fff5f5;
+        color: #ef4444;
+    }
+    .pd-btn-wishlist svg {
+        transition: transform 0.2s ease;
+    }
+    .pd-btn-wishlist.active svg {
+        fill: #ef4444;
+        transform: scale(1.1);
+    }
+
     /* ── Reviews ──────────────────────────────────────── */
     .pd-reviews {
         margin-top: 8px;
@@ -840,13 +893,16 @@ require_once __DIR__ . '/includes/page_topbar.php';
             </div>
             
             <!-- Desktop Buttons -->
-            <div class="pd-inline-cta">
+            <div class="pd-inline-cta" style="display:flex;gap:10px;align-items:center;">
                 <button class="pd-btn-cart" id="add-to-cart-action" <?php echo $canBuy ? '' : 'disabled'; ?>>
                     <i data-lucide="shopping-cart" style="width:18px;height:18px;"></i>
                     <?php echo $canBuy ? 'Add to Cart' : ($stockStatus === 'Coming Soon' ? 'Coming Soon' : 'Out of Stock'); ?>
                 </button>
                 <button class="pd-btn-buy" id="buy-now-action" <?php echo $canBuy ? '' : 'disabled'; ?>>
                     <i data-lucide="zap" style="width:18px;height:18px;"></i> Buy Now
+                </button>
+                <button class="pd-btn-wishlist" id="wishlist-toggle-btn" title="Add to Wishlist">
+                    <i data-lucide="heart" style="width:20px;height:20px;"></i>
                 </button>
             </div>
             
@@ -917,21 +973,24 @@ require_once __DIR__ . '/includes/page_topbar.php';
             <?php if (isLoggedIn()): ?>
                 <form class="pd-review-form" method="POST" action="product.php?id=<?php echo urlencode($productId); ?>">
                     <input type="hidden" name="action" value="add_review">
-                    <input type="hidden" name="rating" id="form-rating-val" value="5">
+                    <input type="hidden" name="rating" id="form-rating-val" value="<?php echo $userReview ? (int)$userReview['rating'] : 5; ?>">
                     
-                    <div class="pd-form-title">Write a Review</div>
+                    <div class="pd-form-title"><?php echo $userReview ? 'Edit Your Review' : 'Write a Review'; ?></div>
                     <div style="font-size:0.78rem;font-weight:600;color:#64748b;margin-bottom:8px;">YOUR RATING</div>
                     <div class="pd-star-row">
-                        <?php for ($s = 1; $s <= 5; $s++): ?>
-                            <span class="pd-star active" onclick="setRating(<?php echo $s; ?>)" data-star="<?php echo $s; ?>">
-                                <i data-lucide="star" style="width:28px;height:28px;fill:#f59e0b;"></i>
+                        <?php 
+                        $currentRating = $userReview ? (int)$userReview['rating'] : 5;
+                        for ($s = 1; $s <= 5; $s++): 
+                        ?>
+                            <span class="pd-star <?php echo $s <= $currentRating ? 'active' : ''; ?>" onclick="setRating(<?php echo $s; ?>)" data-star="<?php echo $s; ?>">
+                                <i data-lucide="star" style="width:28px;height:28px;<?php echo $s <= $currentRating ? 'fill:#f59e0b;color:#f59e0b;' : 'color:#cbd5e1;'; ?>"></i>
                             </span>
                         <?php endfor; ?>
                     </div>
                     
                     <div style="font-size:0.78rem;font-weight:600;color:#64748b;margin-bottom:6px;">YOUR COMMENT</div>
-                    <textarea name="comment" class="pd-review-textarea" placeholder="Share your experience…" required></textarea>
-                    <button type="submit" class="pd-submit-btn">Submit Review</button>
+                    <textarea name="comment" class="pd-review-textarea" placeholder="Share your experience…" required><?php echo htmlspecialchars($userReview ? $userReview['comment'] : ''); ?></textarea>
+                    <button type="submit" class="pd-submit-btn"><?php echo $userReview ? 'Update Review' : 'Submit Review'; ?></button>
                 </form>
             <?php else: ?>
                 <div class="pd-login-prompt">
@@ -941,7 +1000,6 @@ require_once __DIR__ . '/includes/page_topbar.php';
         </div>
     </div>
 
-    <!-- Mobile Sticky CTA -->
     <div class="pd-sticky-cta">
         <button class="pd-btn-cart" id="add-to-cart-action-mob" <?php echo $canBuy ? '' : 'disabled'; ?>>
             <i data-lucide="shopping-cart" style="width:18px;height:18px;"></i>
@@ -949,6 +1007,9 @@ require_once __DIR__ . '/includes/page_topbar.php';
         </button>
         <button class="pd-btn-buy" id="buy-now-action-mob" <?php echo $canBuy ? '' : 'disabled'; ?>>
             <i data-lucide="zap" style="width:18px;height:18px;"></i> Buy Now
+        </button>
+        <button class="pd-btn-wishlist" id="wishlist-toggle-btn-mob" title="Add to Wishlist">
+            <i data-lucide="heart" style="width:20px;height:20px;"></i>
         </button>
     </div>
 </main>
@@ -1181,6 +1242,45 @@ require_once __DIR__ . '/includes/page_topbar.php';
             const el = document.getElementById(id);
             if (el) el.addEventListener('click', handleBuyNow);
         });
+
+        // Wishlist Toggle Logic
+        function updateWishlistButtons() {
+            const isWish = window.WishlistManager && window.WishlistManager.has(baseProduct.id);
+            ['wishlist-toggle-btn', 'wishlist-toggle-btn-mob'].forEach(id => {
+                const el = document.getElementById(id);
+                if (el) {
+                    el.classList.toggle('active', isWish);
+                }
+            });
+        }
+        window.addEventListener('wishlistUpdated', updateWishlistButtons);
+        ['wishlist-toggle-btn', 'wishlist-toggle-btn-mob'].forEach(id => {
+            const el = document.getElementById(id);
+            if (el) {
+                el.addEventListener('click', async function() {
+                    if (window.WishlistManager) {
+                        el.disabled = true;
+                        try {
+                            const pItem = {
+                                id: baseProduct.id,
+                                title: baseProduct.title,
+                                sku: baseProduct.sku,
+                                primary_image: baseProduct.primary_image,
+                                status: baseProduct.status,
+                                new_price: baseProduct.new_price,
+                                rating: baseProduct.rating || '0.0',
+                                weight: baseProduct.weight
+                            };
+                            await window.WishlistManager.toggle(pItem);
+                        } finally {
+                            el.disabled = false;
+                        }
+                    }
+                });
+            }
+        });
+        setTimeout(updateWishlistButtons, 100);
+        setTimeout(updateWishlistButtons, 500);
     });
 </script>
 

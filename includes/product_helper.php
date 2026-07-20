@@ -95,6 +95,9 @@ function renderProductCard($prod, $db, $preloadedAttr = null) {
              onclick="window.location.href=\'product.php?id=' . $prod['id'] . '\';" style="cursor:pointer;">
             <div class="prod-img-box">
                 <img src="' . htmlspecialchars($img) . '" alt="' . htmlspecialchars($prod['title']) . '" loading="lazy">
+                <button class="card-wishlist-btn" data-product-id="' . $prod['id'] . '" onclick="event.stopPropagation(); window.toggleWishlistFromCard(this, ' . htmlspecialchars($jsRegistryJson) . ');" title="Toggle Wishlist">
+                    <i data-lucide="heart" style="width:16px;height:16px;"></i>
+                </button>
             </div>
             <div class="prod-info">
                 <h3 class="prod-title">' . htmlspecialchars($prod['title']) . '</h3>

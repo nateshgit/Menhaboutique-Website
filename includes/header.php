@@ -132,6 +132,7 @@ try {
             <a href="products.php"><i data-lucide="grid"></i> All Products</a>
             <a href="categories.php"><i data-lucide="layers"></i> Categories</a>
             <a href="cart.php"><i data-lucide="shopping-bag"></i> Cart</a>
+            <a href="wishlist.php"><i data-lucide="heart"></i> Wishlist</a>
             <?php if (isLoggedIn()): ?>
                 <a href="profile.php"><i data-lucide="user"></i> My Profile</a>
                 <a href="orders.php"><i data-lucide="package"></i> My Orders</a>
@@ -199,6 +200,10 @@ try {
                         <i data-lucide="user"></i>
                     </a>
                 <?php endif; ?>
+                <a href="wishlist.php" class="action-btn tooltip" title="Wishlist" id="wishlist-btn" style="position:relative;margin-right:8px;">
+                    <i data-lucide="heart"></i>
+                    <span class="badge" id="wishlist-badge" style="display:none;background:var(--color-accent);color:#fff;">0</span>
+                </a>
                 <div class="cart-container">
                     <a href="cart.php" class="action-btn" id="cart-btn">
                         <i data-lucide="shopping-bag"></i>

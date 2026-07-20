@@ -44,6 +44,7 @@ document.addEventListener("DOMContentLoaded", async () => {
   }
 
   window.addEventListener("cartUpdated", updateCartBadge);
+  window.addEventListener("wishlistUpdated", updateWishlistBadge);
 
   try {
     await CartManager.init();
@@ -52,13 +53,29 @@ document.addEventListener("DOMContentLoaded", async () => {
     console.warn("Cart init failed:", e);
   }
 
+  try {
+    await WishlistManager.init();
+    updateWishlistBadge();
+    if (window.MB_AUTH && window.MB_AUTH.isLoggedIn) {
+      await WishlistManager.mergeGuestWishlistOnLogin();
+    }
+  } catch (e) {
+    console.warn("Wishlist init failed:", e);
+  }
+
   // Cross-device cart sync for logged-in users:
   // Re-fetch on tab focus and every 60 s so changes on another device appear promptly.
   if (window.MB_AUTH && window.MB_AUTH.isLoggedIn) {
     document.addEventListener("visibilitychange", () => {
-      if (document.visibilityState === "visible") CartManager.syncFromDB();
+      if (document.visibilityState === "visible") {
+        CartManager.syncFromDB();
+        WishlistManager.init(); // Sync wishlist too
+      }
     });
-    setInterval(() => CartManager.syncFromDB(), 60000);
+    setInterval(() => {
+      CartManager.syncFromDB();
+      WishlistManager.init(); // Sync wishlist too
+    }, 60000);
   }
 });
 
@@ -111,6 +128,14 @@ function updateCartBadge() {
   } else {
     badge.style.display = "none";
   }
+}
+
+function updateWishlistBadge() {
+  const badge = document.getElementById("wishlist-badge");
+  if (!badge) return;
+  const count = WishlistManager.getWishlist().length;
+  badge.innerText = count;
+  badge.style.display = count > 0 ? "flex" : "none";
 }
 
 window._productRegistry = window._productRegistry || {};
@@ -212,6 +237,9 @@ window.productCardHtml = function (prod) {
         <div class="product-card fade-in-stagger" onclick="window.location.href='product.php?id=${prod.id}';" style="cursor:pointer;">
             <div class="prod-img-box">
                 <img src="${img}" alt="${prod.title}" loading="lazy">
+                <button class="card-wishlist-btn" data-product-id="${prod.id}" onclick="event.stopPropagation(); window.toggleWishlistFromCard(this, ${JSON.stringify(prod).replace(/"/g, '&quot;')});" title="Toggle Wishlist">
+                    <i data-lucide="heart" style="width:16px;height:16px;"></i>
+                </button>
             </div>
             <div class="prod-info">
                 <h3 class="prod-title">${prod.title}</h3>
@@ -264,4 +292,34 @@ window.toggleMobileDrawer = toggleMobileDrawer;
     observer.observe(el);
   });
 })();
+
+// Card wishlist toggler
+window.toggleWishlistFromCard = async function (btn, prod) {
+  if (window.WishlistManager) {
+    btn.disabled = true;
+    try {
+      await window.WishlistManager.toggle(prod);
+      const active = window.WishlistManager.has(prod.id);
+      btn.classList.toggle('active', active);
+    } finally {
+      btn.disabled = false;
+    }
+  }
+};
+
+// Sync all floating heart icons on active cards
+function syncCardWishlistIcons() {
+  if (!window.WishlistManager) return;
+  document.querySelectorAll('.card-wishlist-btn').forEach(btn => {
+    const pid = btn.dataset.productId;
+    if (pid) {
+      btn.classList.toggle('active', window.WishlistManager.has(pid));
+    }
+  });
+}
+window.addEventListener("wishlistUpdated", syncCardWishlistIcons);
+document.addEventListener("DOMContentLoaded", () => {
+    setTimeout(syncCardWishlistIcons, 200);
+    setTimeout(syncCardWishlistIcons, 600);
+});
 
